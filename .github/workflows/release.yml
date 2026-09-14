@@ -1,0 +1,112 @@
+# Checks the loader on every push and pull request, and releases it when VERSION moves.
+#
+# A release is a git tag named for VERSION (1.0.0, no "v", so jsDelivr can resolve ranges
+# such as @1) plus a GitHub release. jsDelivr serves an exact version forever and a range for
+# up to 7 days, so after tagging, the ranges apps use are purged to pick the release up now.
+name: Release
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Check the loader
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      major: ${{ steps.version.outputs.major }}
+      minor: ${{ steps.version.outputs.minor }}
+      released: ${{ steps.released.outputs.released }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Plain ASCII
+        run: |
+          if LC_ALL=C grep -n '[^[:print:][:space:]]' printcrm-feedback.js; then
+            echo "::error file=printcrm-feedback.js::The lines above hold non-ASCII or control characters. The loader is served into pages whatever charset they declare; keep it plain ASCII."
+            exit 1
+          fi
+
+      - name: Parses as JavaScript
+        run: node --check printcrm-feedback.js
+
+      - name: Read VERSION
+        id: version
+        run: |
+          version=$(awk -F"'" '/var VERSION = /{ print $2; exit }' printcrm-feedback.js)
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+[.][0-9]+[.][0-9]+$'; then
+            echo "::error file=printcrm-feedback.js::VERSION must be major.minor.patch; found '$version'."
+            exit 1
+          fi
+          IFS=. read -r major minor patch <<< "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "major=$major" >> "$GITHUB_OUTPUT"
+          echo "minor=$major.$minor" >> "$GITHUB_OUTPUT"
+          echo "Loader version $version"
+
+      - name: VERSION raised for every change
+        id: released
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if git rev-parse -q --verify "refs/tags/$VERSION" > /dev/null; then
+            if git diff --quiet "$VERSION" HEAD -- printcrm-feedback.js; then
+              echo "released=true" >> "$GITHUB_OUTPUT"
+              echo "$VERSION is released, and the loader is unchanged since."
+            else
+              echo "::error file=printcrm-feedback.js::The loader changed since $VERSION was released but VERSION didn't. jsDelivr keeps $VERSION as it was released; raise VERSION."
+              exit 1
+            fi
+          else
+            echo "released=false" >> "$GITHUB_OUTPUT"
+            echo "$VERSION isn't released yet."
+          fi
+
+  release:
+    name: Release
+    needs: check
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && needs.check.outputs.released == 'false'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+      MAJOR: ${{ needs.check.outputs.major }}
+      MINOR: ${{ needs.check.outputs.minor }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tag and publish the release
+        run: gh release create "$VERSION" --target "$GITHUB_SHA" --title "$VERSION" --generate-notes
+
+      - name: Refresh jsDelivr's ranges
+        run: |
+          for ref in "$MAJOR" "$MINOR" latest; do
+            for file in printcrm-feedback.js printcrm-feedback.min.js; do
+              url="https://purge.jsdelivr.net/gh/${GITHUB_REPOSITORY}@${ref}/${file}"
+              if curl -fsS --max-time 30 "$url" > /dev/null; then
+                echo "Purged @${ref}/${file}"
+              else
+                echo "::warning::Couldn't purge @${ref}/${file}; pages on it pick $VERSION up within 7 days."
+              fi
+            done
+          done
+
+      - name: Summary
+        run: |
+          base="https://cdn.jsdelivr.net/gh/${GITHUB_REPOSITORY}"
+          {
+            echo "### printcrm-feedback $VERSION released"
+            echo ""
+            echo "- For apps: ${base}@${MAJOR}/printcrm-feedback.js"
+            echo "- Exactly this release: ${base}@${VERSION}/printcrm-feedback.js"
+          } >> "$GITHUB_STEP_SUMMARY"
