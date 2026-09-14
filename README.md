@@ -65,6 +65,22 @@ step that sets `VITE_APP_VERSION` fills in the meta tag:
 BugDrop's button sits bottom-right unless `data-position="bottom-left"` says otherwise. Keep an
 app's own floating notices clear of it.
 
+**Your own button.** Where a floating button has no good place, in an app with a toolbar say,
+add `data-button="false"` to the tag to hide BugDrop's, and mark your own control with
+`data-feedback`:
+
+```html
+<script src="https://cdn.jsdelivr.net/gh/PrintCRM/feedback-loader@1/printcrm-feedback.js"
+        data-app="Cutline Designer" data-version="1.4.0+abc1234"
+        data-button="false"></script>
+
+<button type="button" data-feedback>Feedback</button>
+```
+
+Any element works, a link included, and so do ones a framework renders later: there is nothing
+to wire up. Code can call `PrintCRMFeedback.open()` instead. A click in the moment before the
+widget has loaded opens the dialog as soon as it has.
+
 ## Using it in your own app
 
 Set `data-repo` to your own repository, and install the [BugDrop GitHub App](https://bugdrop.dev)

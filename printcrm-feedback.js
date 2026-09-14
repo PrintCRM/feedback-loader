@@ -14,6 +14,12 @@
 // Any other data-* on the tag (data-position, data-theme, data-label, data-repo, data-widget)
 // is passed to the widget as it is.
 //
+// Your own button instead of BugDrop's floating one: add data-button="false" to the tag, then
+// mark any element with data-feedback, or call PrintCRMFeedback.open(). A click in the moment
+// before the widget has loaded opens the dialog as soon as it has.
+//
+//   <button type="button" data-feedback>Feedback</button>
+//
 // Using this outside PrintCRM? Set data-repo to your own repository, with the BugDrop GitHub
 // App installed on it. Left out, your users' reports go to PrintCRM instead of to you.
 //
@@ -28,7 +34,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '1.0.0';
+    var VERSION = '1.1.0';
 
     var WIDGET = 'https://bugdrop.neonwatty.workers.dev/widget.v1.js';   // major pin: BugDrop's own advice for production
     var REPO = 'PrintCRM/Feedback';
@@ -85,7 +91,37 @@
         if (key !== 'app' && key !== 'version' && key !== 'repo' && key !== 'widget') widget.dataset[key] = own[key];
     });
 
-    window.PrintCRMFeedback = { loader: VERSION, app: app, version: version, repo: widget.dataset.repo, widget: widget.src };
+    // Opening the dialog from the app's own control. The widget arrives after the page and
+    // announces when it can take calls; a request made before then is kept, and carried out then.
+    var ready = false;
+    var wanted = false;
+
+    function open() {
+        if (ready && window.BugDrop && typeof window.BugDrop.open === 'function') {
+            window.BugDrop.open();
+            return;
+        }
+        wanted = true;
+    }
+
+    window.addEventListener('bugdrop:ready', function () {
+        ready = true;
+        if (wanted) {
+            wanted = false;
+            open();
+        }
+    });
+
+    // Any element marked data-feedback opens the dialog, including ones a framework renders later.
+    // A link so marked doesn't also follow its href.
+    document.addEventListener('click', function (event) {
+        var target = event.target && event.target.closest ? event.target.closest('[data-feedback]') : null;
+        if (!target || target.tagName === 'SCRIPT') return;
+        event.preventDefault();
+        open();
+    });
+
+    window.PrintCRMFeedback = { loader: VERSION, app: app, version: version, repo: widget.dataset.repo, widget: widget.src, open: open };
 
     function add() { document.body.appendChild(widget); }
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', add);
