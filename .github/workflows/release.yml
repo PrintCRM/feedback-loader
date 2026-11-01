@@ -17,7 +17,7 @@ permissions:
 jobs:
   check:
     name: Check the loader
-    runs-on: photon-linux
+    runs-on: ${{ vars.LINUX_RUNNER || 'photon-linux' }}
     outputs:
       version: ${{ steps.version.outputs.version }}
       major: ${{ steps.version.outputs.major }}
@@ -74,7 +74,7 @@ jobs:
     name: Release
     needs: check
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && needs.check.outputs.released == 'false'
-    runs-on: photon-linux
+    runs-on: ${{ vars.LINUX_RUNNER || 'photon-linux' }}
     permissions:
       contents: write
     env:
