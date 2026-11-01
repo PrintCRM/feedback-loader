@@ -17,7 +17,7 @@ permissions:
 jobs:
   check:
     name: Check the loader
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.LINUX_RUNNER || 'photon-linux' }}
     outputs:
       version: ${{ steps.version.outputs.version }}
       major: ${{ steps.version.outputs.major }}
@@ -74,7 +74,7 @@ jobs:
     name: Release
     needs: check
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && needs.check.outputs.released == 'false'
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.LINUX_RUNNER || 'photon-linux' }}
     permissions:
       contents: write
     env:
@@ -84,6 +84,13 @@ jobs:
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
+
+      # The self-hosted runner may not come with the GitHub CLI, which the release step uses.
+      - name: Install gh
+        run: |
+          if ! command -v gh >/dev/null; then
+            sudo apt-get update -qq && sudo apt-get install -y -qq gh
+          fi
 
       - name: Tag and publish the release
         run: gh release create "$VERSION" --target "$GITHUB_SHA" --title "$VERSION" --generate-notes
